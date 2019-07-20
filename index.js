@@ -2,6 +2,7 @@ const jsdom = require('jsdom');
 const { JSDOM } = jsdom;
 
 const config = require('./config.json');
+const tracks = require('./audio.json');
 
 const Discord = require('discord.js');
 const client = new Discord.Client();
@@ -10,6 +11,48 @@ client.login(config.token);
 
 const names = require('./names.json');
 const launch = new Date('2019-07-16T13:32:00.000Z');
+
+const audio = {
+  dispatcher: undefined,
+  broadcast: undefined,
+  connection: undefined,
+};
+
+function audioFindTrack(t) {
+  for(let i = 0; i < tracks.length; i++) {
+    const track = tracks[i];
+    if(t >= track.start*60*60*1000 && t <= track.end*60*60*1000) {
+      return track;
+    }
+  }
+  throw new Error('No track found');
+}
+
+function createDispatcher(t, ref) {
+  const track = audioFindTrack(t - ref.getTime());
+  const start = ref.getTime() + track.start*60*60*1000;
+  console.log('on track', track.v, 'seeking to', ((t-start)/(60*60*1000)));
+  const dispatcher = audio.broadcast.playFile(
+    `./audio/${track.v}.m4a`,
+    { seek: Math.max(0.0, (t - start)/1000.0) });
+  dispatcher.on('error', (e) => console.log(e));
+  dispatcher.on('end', () => console.log('end'));
+  return dispatcher;
+}
+
+function updateAudioState(t, ref, delta) {
+  if(audio.dispatcher === undefined) {
+    setTimeout(() => audio.dispatcher = createDispatcher(t, ref), delta);
+  }
+  else {
+    if(delta > 2*60*1000) {
+      console.log('Player refresh');
+      setTimeout(() => audio.dispatcher.end(), 60*1000);
+      // discordjs ffmpeg code needs some time to buffer
+      setTimeout(() => audio.dispatcher = createDispatcher(t, ref), Math.max(1, delta - 55*1000));
+    }
+  }
+}
 
 async function waitFor(c, ref) {
   const [d, h, m, s] = c.split(' ');
@@ -22,6 +65,8 @@ async function waitFor(c, ref) {
   if (delta<0) {
     throw new Error('prior to now');
   } else {
+    console.log(delta / 1000.0);
+    updateAudioState(t, ref, delta);
     await new Promise(res => setTimeout(res, delta));
   }
   console.log(new Date(t));
@@ -56,8 +101,14 @@ async function* chat(defaultSkip = true) {
 
 client.on('ready', async ()=>{
   const channel = client.channels.get(config.channel);
-  const chatLog = chat();
-  for await (const msg of chatLog) {
-    channel.send(msg);
-  }
+  const voice = client.channels.get(config.voiceChannel);
+  voice.join().then(async (connection) => {
+    audio.connection = connection;
+    audio.broadcast = client.createVoiceBroadcast()
+    audio.connection.playBroadcast(audio.broadcast);
+    const chatLog = chat();
+    for await (const msg of chatLog) {
+      channel.send(msg);
+    }
+  });
 });
