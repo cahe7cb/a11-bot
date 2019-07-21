@@ -42,7 +42,7 @@ function createDispatcher(t, ref) {
 
 function updateAudioState(t, ref, delta) {
   if(audio.dispatcher === undefined) {
-    setTimeout(() => audio.dispatcher = createDispatcher(t, ref), delta);
+    setTimeout(() => audio.dispatcher = createDispatcher(t, ref), Math.max(1, delta - 55*1000));
   }
   else {
     if(delta > 2*60*1000) {
