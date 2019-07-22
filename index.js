@@ -28,28 +28,33 @@ function audioFindTrack(t) {
   throw new Error('No track found');
 }
 
-function createDispatcher(t, ref) {
-  const track = audioFindTrack(t - ref.getTime());
-  const start = ref.getTime() + track.start*60*60*1000;
-  console.log('on track', track.v, 'seeking to', ((t-start)/(60*60*1000)));
-  const dispatcher = audio.broadcast.playFile(
-    `./audio/${track.v}.m4a`,
-    { seek: Math.max(0.0, (t - start)/1000.0) });
+function createDispatcher(track, seek) {
+  console.log('on track', track.v, 'seeking to', seek);
+  const dispatcher = audio.broadcast.playFile(`./audio/${track.v}.m4a`, { seek: seek });
   dispatcher.on('error', (e) => console.log(e));
   dispatcher.on('end', () => console.log('end'));
   return dispatcher;
 }
 
+function startBroadcast(t, ref, delta) {
+  const track = audioFindTrack(t - ref.getTime());
+  const start = ref.getTime() + track.start*60*60*1000;
+  const seek  = (t - start)/1000.0;
+  const duration = (track.end - track.start) * 60*60;
+  const delay = delta - (seek/duration) * (59*1000);
+  // discordjs ffmpeg code needs some time to buffer
+  setTimeout(() => audio.dispatcher = createDispatcher(track, seek), Math.max(1, delay));
+}
+
 function updateAudioState(t, ref, delta) {
   if(audio.dispatcher === undefined) {
-    setTimeout(() => audio.dispatcher = createDispatcher(t, ref), Math.max(1, delta - 55*1000));
+    startBroadcast(t, ref, delta);
   }
   else {
     if(delta > 2*60*1000) {
       console.log('Player refresh');
       setTimeout(() => audio.dispatcher.end(), 60*1000);
-      // discordjs ffmpeg code needs some time to buffer
-      setTimeout(() => audio.dispatcher = createDispatcher(t, ref), Math.max(1, delta - 55*1000));
+      startBroadcast(t, ref, delta);
     }
   }
 }
